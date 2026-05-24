@@ -28,7 +28,9 @@ module.exports = {
     const parsed = parseDriveLink(link);
 
     if (!parsed) {
-      return interaction.editReply({ embeds: [errorEmbed('Invalid Google Drive link.')] });
+      await interaction.editReply({ embeds: [errorEmbed('Invalid Google Drive link.')] });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+      return;
     }
 
     try {
@@ -52,7 +54,8 @@ module.exports = {
       }
     } catch (err) {
       console.error('Drive-info command error:', err);
-      return interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
+      await interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
     }
   },
 };

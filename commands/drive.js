@@ -3,7 +3,7 @@ const { parseDriveLink } = require('../utils/parseLink');
 const { createDriveClient } = require('../services/driveClient');
 const { downloadFile, getFolderInfo, getFileInfo } = require('../services/downloader');
 const { sendFiles, sendBatch, getMaxSize } = require('../services/uploader');
-const { progressEmbed, errorEmbed, fileInfoEmbed, folderInfoEmbed } = require('../utils/embeds');
+const { progressEmbed, loadingEmbed, errorEmbed, fileInfoEmbed, folderInfoEmbed } = require('../utils/embeds');
 const { setCooldown, checkCooldown } = require('../utils/cooldown');
 const { checkPermission } = require('../utils/permissions');
 
@@ -33,14 +33,20 @@ module.exports = {
     const parsed = parseDriveLink(link);
 
     if (!parsed) {
-      return interaction.editReply({ embeds: [errorEmbed('Invalid Google Drive link. Provide a valid file or folder URL.')] });
+      await interaction.editReply({ embeds: [errorEmbed('Invalid Google Drive link. Provide a valid file or folder URL.')] });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+      return;
     }
 
     const cooldownKey = parsed.type === 'folder' ? 'drive_folder' : 'drive';
     const remaining = checkCooldown(interaction.user.id, cooldownKey);
     if (remaining > 0) {
-      return interaction.editReply({ embeds: [errorEmbed(`Please wait ${remaining}s before using this command again.`)] });
+      await interaction.editReply({ embeds: [errorEmbed(`Please wait ${remaining}s before using this command again.`)] });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+      return;
     }
+
+    await interaction.editReply({ embeds: [loadingEmbed('⏳ Checking link...')] }).catch(() => {});
 
     try {
       const drive = await createDriveClient();
@@ -53,7 +59,9 @@ module.exports = {
         const info = await getFolderInfo(drive, parsed.id);
 
         if (info.directFiles + info.subfolders === 0) {
-          return interaction.editReply({ embeds: [errorEmbed('This folder is empty.')] });
+          await interaction.editReply({ embeds: [errorEmbed('This folder is empty.')] });
+          setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+          return;
         }
 
         const embed = folderInfoEmbed(info.name, info.directFiles, info.subfolders, (info.totalSize / (1024 * 1024)).toFixed(2), info.files);
@@ -92,7 +100,8 @@ module.exports = {
       }
     } catch (err) {
       console.error('Drive command error:', err);
-      return interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
+      await interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
     }
   },
 };
@@ -128,11 +137,16 @@ async function handleFile(interaction, drive, fileId, maxSize) {
 
   await interaction.editReply({ embeds: [fileInfoEmbed(name, sizeKB, mimeType, canDownload)] });
 
-  if (!canDownload) return;
+  if (!canDownload) {
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+    return;
+  }
 
   const result = await downloadFile(drive, fileId, name, mimeType, fileSize, maxSize);
   if (result.skipped) {
-    return interaction.editReply({ embeds: [errorEmbed(`**${name}** — ${result.reason}`)] });
+    await interaction.editReply({ embeds: [errorEmbed(`**${name}** — ${result.reason}`)] });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+    return;
   }
 
   await sendFiles(interaction, [result], []);
@@ -144,7 +158,9 @@ async function handleFolder(interaction, drive, folderId, maxSize) {
   const files = info.files;
 
   if (files.length === 0) {
-    return interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
+    await interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+    return;
   }
 
   await interaction.editReply({ embeds: [progressEmbed(0, files.length, name)] });
@@ -164,7 +180,7 @@ async function handleFolder(interaction, drive, folderId, maxSize) {
       batch.push(result);
     }
 
-    if (batch.length === 9 || (i === files.length - 1 && batch.length > 0)) {
+    if (batch.length === 10 || (i === files.length - 1 && batch.length > 0)) {
       try {
         await sendBatch(interaction, batch, batchIndex === 0);
         batchIndex++;
@@ -179,5 +195,6 @@ async function handleFolder(interaction, drive, folderId, maxSize) {
 
   if (batchIndex === 0 && skipped.length > 0) {
     await interaction.editReply({ embeds: [errorEmbed('No files could be downloaded.')] });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
   }
 }

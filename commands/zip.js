@@ -35,12 +35,16 @@ module.exports = {
     const parsed = parseDriveLink(link);
 
     if (!parsed) {
-      return interaction.editReply({ embeds: [errorEmbed('Invalid Google Drive link. Provide a valid folder URL.')] });
+      await interaction.editReply({ embeds: [errorEmbed('Invalid Google Drive link. Provide a valid folder URL.')] });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+      return;
     }
 
     const remaining = checkCooldown(interaction.user.id, 'zip');
     if (remaining > 0) {
-      return interaction.editReply({ embeds: [errorEmbed(`Please wait ${remaining}s before using this command again.`)] });
+      await interaction.editReply({ embeds: [errorEmbed(`Please wait ${remaining}s before using this command again.`)] });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+      return;
     }
 
     try {
@@ -52,14 +56,18 @@ module.exports = {
         const fileSize = info.size;
 
         if (fileSize > maxSize) {
-          return interaction.editReply({
+          await interaction.editReply({
             embeds: [errorEmbed(`**${info.name}** exceeds the server's ${(maxSize / (1024 * 1024)).toFixed(0)} MB upload limit.`)],
           });
+          setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+          return;
         }
 
         const result = await downloadFile(drive, parsed.id, info.name, info.mimeType, fileSize, maxSize);
         if (result.skipped) {
-          return interaction.editReply({ embeds: [errorEmbed(`**${info.name}** — ${result.reason}`)] });
+          await interaction.editReply({ embeds: [errorEmbed(`**${info.name}** — ${result.reason}`)] });
+          setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+          return;
         }
 
         const zipPath = path.join(TEMP_DIR, `${sanitizeFileName(info.name)}.zip`);
@@ -79,7 +87,9 @@ module.exports = {
 
       const allFiles = await enumerateAllFiles(drive, parsed.id);
       if (allFiles.length === 0) {
-        return interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
+        await interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+        return;
       }
 
       setCooldown(interaction.user.id, 'zip', 60000);
@@ -101,7 +111,9 @@ module.exports = {
       }
 
       if (downloaded.length === 0) {
-        return interaction.editReply({ embeds: [errorEmbed('No files could be downloaded to zip.')] });
+        await interaction.editReply({ embeds: [errorEmbed('No files could be downloaded to zip.')] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+        return;
       }
 
       const zipPath = path.join(TEMP_DIR, `${sanitizeFileName(folderName)}.zip`);
@@ -113,7 +125,8 @@ module.exports = {
       cleanupFiles(downloaded.map((f) => f.path));
     } catch (err) {
       console.error('Zip command error:', err);
-      return interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
+      await interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
     }
   },
 };
