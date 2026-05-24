@@ -1,7 +1,7 @@
 const { createDriveClient } = require('../services/driveClient');
 const { downloadFile, getFileInfo, getFolderInfo } = require('../services/downloader');
 const { sendFiles, sendBatch, getMaxSize } = require('../services/uploader');
-const { progressEmbed, errorEmbed } = require('../utils/embeds');
+const { progressEmbed, loadingEmbed, errorEmbed } = require('../utils/embeds');
 const { setCooldown, checkCooldown } = require('../utils/cooldown');
 const { checkPermission } = require('../utils/permissions');
 
@@ -24,6 +24,7 @@ async function handleDownloadButton(interaction) {
   }
 
   await interaction.deferReply({ ephemeral: false });
+  await interaction.editReply({ embeds: [loadingEmbed('⏳ Starting download...')] }).catch(() => {});
   setCooldown(interaction.user.id, cooldownKey, type === 'folder' ? 30000 : 3000);
 
   try {
@@ -36,15 +37,19 @@ async function handleDownloadButton(interaction) {
 
       if (fileSize > maxSize) {
         await interaction.message.delete().catch(() => {});
-        return interaction.editReply({
+        await interaction.editReply({
           embeds: [errorEmbed(`**${info.name}** exceeds the server's ${(maxSize / (1024 * 1024)).toFixed(0)} MB upload limit.`)],
         });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+        return;
       }
 
       const result = await downloadFile(drive, id, info.name, info.mimeType, fileSize, maxSize);
       if (result.skipped) {
         await interaction.message.delete().catch(() => {});
-        return interaction.editReply({ embeds: [errorEmbed(`**${info.name}** — ${result.reason}`)] });
+        await interaction.editReply({ embeds: [errorEmbed(`**${info.name}** — ${result.reason}`)] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+        return;
       }
       await sendFiles(interaction, [result], []);
     } else if (type === 'folder') {
@@ -54,7 +59,9 @@ async function handleDownloadButton(interaction) {
 
       if (files.length === 0) {
         await interaction.message.delete().catch(() => {});
-        return interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
+        await interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+        return;
       }
 
       await interaction.editReply({ embeds: [progressEmbed(0, files.length, name)] });
@@ -74,7 +81,7 @@ async function handleDownloadButton(interaction) {
           batch.push(result);
         }
 
-        if (batch.length === 9 || (i === files.length - 1 && batch.length > 0)) {
+        if (batch.length === 10 || (i === files.length - 1 && batch.length > 0)) {
           try {
             await sendBatch(interaction, batch, batchIndex === 0);
             batchIndex++;
@@ -90,12 +97,14 @@ async function handleDownloadButton(interaction) {
       if (batchIndex === 0 && skipped.length > 0) {
         await interaction.message.delete().catch(() => {});
         await interaction.editReply({ embeds: [errorEmbed('No files could be downloaded.')] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
       }
     }
     await interaction.message.delete().catch(() => {});
   } catch (err) {
     console.error('Download button error:', err);
-    return interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
+    await interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
   }
 }
 
