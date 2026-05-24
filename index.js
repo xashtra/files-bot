@@ -203,7 +203,7 @@ client.on(Events.MessageCreate, async (message) => {
   } catch (err) {
     console.error('Auto-watch error:', err);
     const errMsg = await message.reply({ embeds: [errorEmbed('Could not access this file/folder. Make sure it is publicly shared.')] }).catch(() => null);
-    if (errMsg) setTimeout(() => errMsg.delete().catch(() => {}), 300000);
+    if (errMsg) setTimeout(() => errMsg.delete().catch(() => {}), 15000);
   }
 });
 
