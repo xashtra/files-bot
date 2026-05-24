@@ -2,7 +2,7 @@ const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = re
 const { parseDriveLink } = require('../utils/parseLink');
 const { createDriveClient } = require('../services/driveClient');
 const { downloadFile, getFolderInfo, getFileInfo } = require('../services/downloader');
-const { sendFiles, sendSingleFile, getMaxSize } = require('../services/uploader');
+const { sendFiles, sendBatch, getMaxSize } = require('../services/uploader');
 const { progressEmbed, errorEmbed, fileInfoEmbed, folderInfoEmbed } = require('../utils/embeds');
 const { setCooldown, checkCooldown } = require('../utils/cooldown');
 const { checkPermission } = require('../utils/permissions');
@@ -127,8 +127,9 @@ async function handleFolder(interaction, drive, folderId, maxSize) {
 
   await interaction.editReply({ embeds: [progressEmbed(0, files.length, name)] });
 
-  let sent = 0;
   let skipped = [];
+  let batch = [];
+  let batchIndex = 0;
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -138,16 +139,23 @@ async function handleFolder(interaction, drive, folderId, maxSize) {
     if (result.skipped) {
       skipped.push(result);
     } else {
+      batch.push(result);
+    }
+
+    if (batch.length === 9 || (i === files.length - 1 && batch.length > 0)) {
       try {
-        await sendSingleFile(interaction, result, sent === 0 && i === 0);
-        sent++;
-      } catch (err) {
-        skipped.push({ name: file.name, size: file.size, reason: 'upload failed' });
+        await sendBatch(interaction, batch, batchIndex === 0);
+        batchIndex++;
+      } catch {
+        for (const f of batch) {
+          skipped.push({ name: f.name, size: f.size, reason: 'upload failed' });
+        }
       }
+      batch = [];
     }
   }
 
-  if (sent === 0) {
+  if (batchIndex === 0 && skipped.length > 0) {
     await interaction.editReply({ embeds: [errorEmbed('No files could be downloaded.')] });
   }
 }
