@@ -16,10 +16,16 @@ const BATCH_SIZE = 9;
 
 async function sendBatch(interaction, files, isFirstBatch) {
   const attachments = files.map((f) => new AttachmentBuilder(f.path, { name: f.name }));
-  if (isFirstBatch) {
-    await interaction.editReply({ files: attachments });
-  } else {
-    await interaction.followUp({ files: attachments });
+  try {
+    if (isFirstBatch) {
+      await interaction.editReply({ files: attachments });
+    } else {
+      await interaction.followUp({ files: attachments });
+    }
+  } catch (err) {
+    if (err?.code === 10062 || err?.status === 404) {
+      await interaction.channel?.send({ files: attachments }).catch(() => {});
+    }
   }
   cleanupFiles(files.map((f) => f.path));
 }
@@ -35,17 +41,19 @@ async function sendFiles(interaction, downloaded, skipped) {
     batches.push(downloaded.slice(i, i + BATCH_SIZE));
   }
 
-  await interaction.editReply({
-    embeds: [resultEmbed(0, skipped.length)],
-    files: [],
-  }).catch(() => {});
+  try {
+    await interaction.editReply({
+      embeds: [resultEmbed(0, skipped.length)],
+      files: [],
+    });
+  } catch {}
 
   for (let i = 0; i < batches.length; i++) {
     try {
       await sendBatch(interaction, batches[i], i === 0);
-    } catch (err) {
+    } catch {
       for (const file of batches[i]) {
-        failed.push({ name: file.name, size: file.size, reason: 'upload failed: file too large or Discord rejected it' });
+        failed.push({ name: file.name, size: file.size, reason: 'upload failed' });
       }
     }
   }
@@ -56,9 +64,15 @@ async function sendFiles(interaction, downloaded, skipped) {
     if (reasonList.length > 3900) {
       reasonList = reasonList.substring(0, 3900) + `\n*... and ${failed.length} skipped*`;
     }
-    await interaction.editReply({
-      embeds: [errorEmbed(`No files could be uploaded.\n${reasonList}`)],
-    }).catch(() => {});
+    try {
+      await interaction.editReply({
+        embeds: [errorEmbed(`No files could be uploaded.\n${reasonList}`)],
+      });
+    } catch {
+      await interaction.channel?.send({
+        embeds: [errorEmbed(`No files could be uploaded.\n${reasonList}`)],
+      }).catch(() => {});
+    }
   }
 }
 
