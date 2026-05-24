@@ -1,0 +1,142 @@
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { parseDriveLink } = require('../utils/parseLink');
+const { createDriveClient } = require('../services/driveClient');
+const { downloadFile, downloadAll, getFolderInfo, getFileInfo } = require('../services/downloader');
+const { sendFiles, getMaxSize } = require('../services/uploader');
+const { progressEmbed, errorEmbed, fileInfoEmbed, folderInfoEmbed } = require('../utils/embeds');
+const { setCooldown, checkCooldown } = require('../utils/cooldown');
+const { checkPermission } = require('../utils/permissions');
+
+const CONFIRM_THRESHOLD = 5;
+const COLLECTOR_TIMEOUT = 30000;
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('drive')
+    .setDescription('Download files from a Google Drive link')
+    .addStringOption((option) =>
+      option.setName('link').setDescription('Google Drive file or folder URL').setRequired(true)
+    ),
+
+  async execute(interaction) {
+    const allowed = await checkPermission(interaction);
+    if (!allowed) {
+      return interaction.reply({
+        embeds: [errorEmbed('You do not have permission to use this command.')],
+        ephemeral: true,
+      });
+    }
+
+    await interaction.deferReply();
+
+    const link = interaction.options.getString('link');
+    const parsed = parseDriveLink(link);
+
+    if (!parsed) {
+      return interaction.editReply({ embeds: [errorEmbed('Invalid Google Drive link. Provide a valid file or folder URL.')] });
+    }
+
+    const cooldownKey = parsed.type === 'folder' ? 'drive_folder' : 'drive';
+    const remaining = checkCooldown(interaction.user.id, cooldownKey);
+    if (remaining > 0) {
+      return interaction.editReply({ embeds: [errorEmbed(`Please wait ${remaining}s before using this command again.`)] });
+    }
+
+    try {
+      const drive = await createDriveClient();
+      const maxSize = getMaxSize(interaction);
+
+      if (parsed.type === 'file') {
+        setCooldown(interaction.user.id, 'drive', 3000);
+        await handleFile(interaction, drive, parsed.id, maxSize);
+      } else if (parsed.type === 'folder') {
+        const info = await getFolderInfo(drive, parsed.id);
+
+        if (info.directFiles + info.subfolders === 0) {
+          return interaction.editReply({ embeds: [errorEmbed('This folder is empty.')] });
+        }
+
+        const embed = folderInfoEmbed(info.name, info.directFiles, info.subfolders, (info.totalSize / (1024 * 1024)).toFixed(2), info.files);
+        embed.setDescription(`**${info.name}** — ${info.directFiles} file(s) in ${info.subfolders + 1} folder(s)`);
+
+        if (info.directFiles >= CONFIRM_THRESHOLD) {
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`confirm_folder:${parsed.id}`).setLabel(`Download ${info.directFiles} files`).setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('cancel_folder').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+          );
+
+          await interaction.editReply({ embeds: [embed], components: [row] });
+
+          const collected = await interaction.channel.awaitMessageComponent({
+            filter: (i) => i.user.id === interaction.user.id && i.message.interaction?.id === interaction.id,
+            time: COLLECTOR_TIMEOUT,
+          }).catch(() => null);
+
+          if (!collected || collected.customId === 'cancel_folder') {
+            if (collected && !collected.deferred && !collected.replied) {
+              await collected.deferUpdate();
+            }
+            return interaction.editReply({ embeds: [embed], components: [] });
+          }
+
+          if (!collected.deferred && !collected.replied) {
+            await collected.deferUpdate();
+          }
+          setCooldown(interaction.user.id, 'drive_folder', 30000);
+          await handleFolder(interaction, drive, parsed.id, maxSize);
+        } else {
+          setCooldown(interaction.user.id, 'drive_folder', 30000);
+          await interaction.editReply({ embeds: [embed] });
+          await handleFolder(interaction, drive, parsed.id, maxSize);
+        }
+      }
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 403 || status === 404) {
+        return interaction.editReply({
+          embeds: [errorEmbed('Cannot access the file/folder. Make sure the service account email has been granted access.')],
+        });
+      }
+      console.error('Drive command error:', err);
+      return interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Check the bot logs.')] });
+    }
+  },
+};
+
+async function handleFile(interaction, drive, fileId, maxSize) {
+  const info = await drive.files.get({
+    fileId,
+    fields: 'id, name, mimeType, size',
+  });
+  const { name, mimeType, size } = info.data;
+  const fileSize = parseInt(size || '0', 10);
+
+  const sizeKB = (fileSize / 1024).toFixed(1);
+  const canDownload = fileSize <= maxSize;
+
+  await interaction.editReply({ embeds: [fileInfoEmbed(name, sizeKB, mimeType, canDownload)] });
+
+  if (!canDownload) {
+    return;
+  }
+
+  const result = await downloadFile(drive, fileId, name, mimeType, fileSize, maxSize);
+  if (result.skipped) {
+    return interaction.editReply({ embeds: [errorEmbed(`**${name}** — ${result.reason}`)] });
+  }
+
+  await sendFiles(interaction, [result], []);
+}
+
+async function handleFolder(interaction, drive, folderId, maxSize) {
+  const folderInfoData = await drive.files.get({ fileId: folderId, fields: 'name' });
+  const name = folderInfoData.data.name;
+
+  const progressMsg = await interaction.editReply({ embeds: [progressEmbed(0, 0, name)] });
+
+  const results = await downloadAll(drive, folderId, maxSize, (current, total) => {
+    progressMsg.edit({ embeds: [progressEmbed(current, total, name)] }).catch(() => {});
+  });
+
+  await sendFiles(interaction, results.downloaded, results.skipped);
+}
