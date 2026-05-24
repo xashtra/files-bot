@@ -12,35 +12,45 @@ function getMaxSize(interaction) {
   return 25 * 1024 * 1024;
 }
 
-async function sendSingleFile(interaction, file, isFirst) {
-  const attachment = new AttachmentBuilder(file.path, { name: file.name });
-  if (isFirst) {
-    await interaction.editReply({ files: [attachment] });
+const BATCH_SIZE = 9;
+
+async function sendBatch(interaction, files, isFirstBatch) {
+  const attachments = files.map((f) => new AttachmentBuilder(f.path, { name: f.name }));
+  if (isFirstBatch) {
+    await interaction.editReply({ files: attachments });
   } else {
-    await interaction.followUp({ files: [attachment] });
+    await interaction.followUp({ files: attachments });
   }
-  cleanupFiles([file.path]);
+  cleanupFiles(files.map((f) => f.path));
+}
+
+async function sendSingleFile(interaction, file, isFirst) {
+  await sendBatch(interaction, [file], isFirst);
 }
 
 async function sendFiles(interaction, downloaded, skipped) {
-  let sent = 0;
   let failed = [...skipped];
+  const batches = [];
+  for (let i = 0; i < downloaded.length; i += BATCH_SIZE) {
+    batches.push(downloaded.slice(i, i + BATCH_SIZE));
+  }
 
   await interaction.editReply({
     embeds: [resultEmbed(0, skipped.length)],
     files: [],
   }).catch(() => {});
 
-  for (const file of downloaded) {
+  for (let i = 0; i < batches.length; i++) {
     try {
-      await sendSingleFile(interaction, file, sent === 0);
-      sent++;
+      await sendBatch(interaction, batches[i], i === 0);
     } catch (err) {
-      failed.push({ name: file.name, size: file.size, reason: 'upload failed: file too large or Discord rejected it' });
-      cleanupFiles([file.path]);
+      for (const file of batches[i]) {
+        failed.push({ name: file.name, size: file.size, reason: 'upload failed: file too large or Discord rejected it' });
+      }
     }
   }
 
+  const sent = downloaded.length - (failed.length - skipped.length);
   if (sent === 0) {
     let reasonList = failed.map((s) => `• **${s.name}** — ${s.reason}`).join('\n');
     if (reasonList.length > 3900) {
@@ -82,4 +92,4 @@ function cleanupFiles(paths) {
   }
 }
 
-module.exports = { sendFiles, sendSingleFile, sendZipFile, cleanupFiles, getMaxSize, MAX_ATTACHMENTS_PER_MESSAGE };
+module.exports = { sendFiles, sendBatch, sendSingleFile, sendZipFile, cleanupFiles, getMaxSize, MAX_ATTACHMENTS_PER_MESSAGE };
