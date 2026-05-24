@@ -35,7 +35,7 @@ async function handleDownloadButton(interaction) {
       const fileSize = info.size;
 
       if (fileSize > maxSize) {
-        await interaction.message.edit({ components: [] }).catch(() => {});
+        await interaction.message.delete().catch(() => {});
         return interaction.editReply({
           embeds: [errorEmbed(`**${info.name}** exceeds the server's ${(maxSize / (1024 * 1024)).toFixed(0)} MB upload limit.`)],
         });
@@ -43,7 +43,7 @@ async function handleDownloadButton(interaction) {
 
       const result = await downloadFile(drive, id, info.name, info.mimeType, fileSize, maxSize);
       if (result.skipped) {
-        await interaction.message.edit({ components: [] }).catch(() => {});
+        await interaction.message.delete().catch(() => {});
         return interaction.editReply({ embeds: [errorEmbed(`**${info.name}** — ${result.reason}`)] });
       }
       await sendFiles(interaction, [result], []);
@@ -53,7 +53,7 @@ async function handleDownloadButton(interaction) {
       const files = info.files;
 
       if (files.length === 0) {
-        await interaction.message.edit({ components: [] }).catch(() => {});
+        await interaction.message.delete().catch(() => {});
         return interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
       }
 
@@ -88,11 +88,11 @@ async function handleDownloadButton(interaction) {
       }
 
       if (batchIndex === 0 && skipped.length > 0) {
-        await interaction.message.edit({ components: [] }).catch(() => {});
+        await interaction.message.delete().catch(() => {});
         await interaction.editReply({ embeds: [errorEmbed('No files could be downloaded.')] });
       }
     }
-    await interaction.message.edit({ components: [] }).catch(() => {});
+    await interaction.message.delete().catch(() => {});
   } catch (err) {
     console.error('Download button error:', err);
     return interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
