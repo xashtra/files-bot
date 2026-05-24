@@ -1,6 +1,6 @@
 const { createDriveClient } = require('../services/driveClient');
 const { downloadFile, getFileInfo, getFolderInfo } = require('../services/downloader');
-const { sendFiles, sendSingleFile, getMaxSize } = require('../services/uploader');
+const { sendFiles, sendBatch, getMaxSize } = require('../services/uploader');
 const { progressEmbed, errorEmbed } = require('../utils/embeds');
 const { setCooldown, checkCooldown } = require('../utils/cooldown');
 const { checkPermission } = require('../utils/permissions');
@@ -35,6 +35,7 @@ async function handleDownloadButton(interaction) {
       const fileSize = info.size;
 
       if (fileSize > maxSize) {
+        await interaction.message.edit({ components: [] }).catch(() => {});
         return interaction.editReply({
           embeds: [errorEmbed(`**${info.name}** exceeds the server's ${(maxSize / (1024 * 1024)).toFixed(0)} MB upload limit.`)],
         });
@@ -42,6 +43,7 @@ async function handleDownloadButton(interaction) {
 
       const result = await downloadFile(drive, id, info.name, info.mimeType, fileSize, maxSize);
       if (result.skipped) {
+        await interaction.message.edit({ components: [] }).catch(() => {});
         return interaction.editReply({ embeds: [errorEmbed(`**${info.name}** — ${result.reason}`)] });
       }
       await sendFiles(interaction, [result], []);
@@ -51,13 +53,15 @@ async function handleDownloadButton(interaction) {
       const files = info.files;
 
       if (files.length === 0) {
+        await interaction.message.edit({ components: [] }).catch(() => {});
         return interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
       }
 
       await interaction.editReply({ embeds: [progressEmbed(0, files.length, name)] });
 
-      let sent = 0;
       let skipped = [];
+      let batch = [];
+      let batchIndex = 0;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -67,19 +71,28 @@ async function handleDownloadButton(interaction) {
         if (result.skipped) {
           skipped.push(result);
         } else {
+          batch.push(result);
+        }
+
+        if (batch.length === 9 || (i === files.length - 1 && batch.length > 0)) {
           try {
-            await sendSingleFile(interaction, result, sent === 0 && i === 0);
-            sent++;
-          } catch (err) {
-            skipped.push({ name: file.name, size: file.size, reason: 'upload failed' });
+            await sendBatch(interaction, batch, batchIndex === 0);
+            batchIndex++;
+          } catch {
+            for (const f of batch) {
+              skipped.push({ name: f.name, size: f.size, reason: 'upload failed' });
+            }
           }
+          batch = [];
         }
       }
 
-      if (sent === 0) {
+      if (batchIndex === 0 && skipped.length > 0) {
+        await interaction.message.edit({ components: [] }).catch(() => {});
         await interaction.editReply({ embeds: [errorEmbed('No files could be downloaded.')] });
       }
     }
+    await interaction.message.edit({ components: [] }).catch(() => {});
   } catch (err) {
     console.error('Download button error:', err);
     return interaction.editReply({ embeds: [errorEmbed('An unexpected error occurred. Make sure the file/folder is publicly shared.')] });
