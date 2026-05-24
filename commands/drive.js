@@ -8,7 +8,7 @@ const { setCooldown, checkCooldown } = require('../utils/cooldown');
 const { checkPermission } = require('../utils/permissions');
 
 const CONFIRM_THRESHOLD = 5;
-const COLLECTOR_TIMEOUT = 30000;
+const COLLECTOR_TIMEOUT = 300000;
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -96,6 +96,28 @@ module.exports = {
     }
   },
 };
+
+async function safeEdit(interaction, msg) {
+  try {
+    return await interaction.editReply(msg);
+  } catch (err) {
+    if (err?.code === 10062 || err?.status === 404) {
+      return interaction.channel?.send(msg).catch(() => {});
+    }
+    throw err;
+  }
+}
+
+async function safeFollowUp(interaction, msg) {
+  try {
+    return await interaction.followUp(msg);
+  } catch (err) {
+    if (err?.code === 10062 || err?.status === 404) {
+      return interaction.channel?.send(msg).catch(() => {});
+    }
+    throw err;
+  }
+}
 
 async function handleFile(interaction, drive, fileId, maxSize) {
   const info = await getFileInfo(drive, fileId);
