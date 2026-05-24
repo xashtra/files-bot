@@ -194,12 +194,16 @@ client.on(Events.MessageCreate, async (message) => {
         .setStyle(ButtonStyle.Primary)
     );
 
-    await message.reply({
+    const botMsg = await message.reply({
       embeds: [autoWatchEmbed(info.name || 'Unknown', info, parsed.type)],
       components: [row],
     });
+
+    setTimeout(() => botMsg.delete().catch(() => {}), 300000);
   } catch (err) {
     console.error('Auto-watch error:', err);
+    const errMsg = await message.reply({ embeds: [errorEmbed('Could not access this file/folder. Make sure it is publicly shared.')] }).catch(() => null);
+    if (errMsg) setTimeout(() => errMsg.delete().catch(() => {}), 300000);
   }
 });
 
