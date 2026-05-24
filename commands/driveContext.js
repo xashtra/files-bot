@@ -1,8 +1,8 @@
 const { ContextMenuCommandBuilder, ApplicationCommandType } = require('discord.js');
 const { parseDriveLink } = require('../utils/parseLink');
 const { createDriveClient } = require('../services/driveClient');
-const { downloadFile, downloadAll, getFileInfo, getFolderInfo } = require('../services/downloader');
-const { sendFiles, getMaxSize } = require('../services/uploader');
+const { downloadFile, getFileInfo, getFolderInfo } = require('../services/downloader');
+const { sendFiles, sendSingleFile, getMaxSize } = require('../services/uploader');
 const { progressEmbed, errorEmbed } = require('../utils/embeds');
 const { setCooldown, checkCooldown } = require('../utils/cooldown');
 const { checkPermission } = require('../utils/permissions');
@@ -74,12 +74,35 @@ async function handleContextFile(interaction, drive, fileId, maxSize) {
 async function handleContextFolder(interaction, drive, folderId, maxSize) {
   const info = await getFolderInfo(drive, folderId);
   const name = info.name;
+  const files = info.files;
 
-  const progressMsg = await interaction.editReply({ embeds: [progressEmbed(0, 0, name)] });
+  if (files.length === 0) {
+    return interaction.editReply({ embeds: [errorEmbed('No files found in this folder.')] });
+  }
 
-  const results = await downloadAll(drive, folderId, maxSize, (current, total) => {
-    progressMsg.edit({ embeds: [progressEmbed(current, total, name)] }).catch(() => {});
-  });
+  await interaction.editReply({ embeds: [progressEmbed(0, files.length, name)] });
 
-  await sendFiles(interaction, results.downloaded, results.skipped);
+  let sent = 0;
+  let skipped = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    await interaction.editReply({ embeds: [progressEmbed(i + 1, files.length, name)] }).catch(() => {});
+
+    const result = await downloadFile(drive, file.id, file.name, file.mimeType, parseInt(file.size || '0', 10), maxSize);
+    if (result.skipped) {
+      skipped.push(result);
+    } else {
+      try {
+        await sendSingleFile(interaction, result, sent === 0 && i === 0);
+        sent++;
+      } catch (err) {
+        skipped.push({ name: file.name, size: file.size, reason: 'upload failed' });
+      }
+    }
+  }
+
+  if (sent === 0) {
+    await interaction.editReply({ embeds: [errorEmbed('No files could be downloaded.')] });
+  }
 }
