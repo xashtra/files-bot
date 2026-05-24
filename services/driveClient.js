@@ -30,18 +30,33 @@ function readBody(res) {
   });
 }
 
+function parseFileSize(text) {
+  const match = text.match(/([\d.]+)\s*(KB|MB|GB)/i);
+  if (!match) return 0;
+  const val = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  if (unit === 'KB') return Math.round(val * 1024);
+  if (unit === 'MB') return Math.round(val * 1024 * 1024);
+  if (unit === 'GB') return Math.round(val * 1024 * 1024 * 1024);
+  return 0;
+}
+
 async function getFileInfo(fileId) {
-  const url = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`;
-  const res = await httpGet(url, 'HEAD');
+  const url = `https://drive.google.com/file/d/${fileId}/view`;
+  const res = await httpGet(url);
 
   if (res.statusCode !== 200) {
     return { id: fileId, name: `file_${fileId}`, size: 0, mimeType: 'application/octet-stream', totalSize: 0 };
   }
 
-  const cd = res.headers['content-disposition'] || '';
-  const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^;"'\n]+)/i);
-  const name = match ? decodeURIComponent(match[1].trim()) : `file_${fileId}`;
-  const size = parseInt(res.headers['content-length'] || '0', 10);
+  const html = await readBody(res);
+
+  const titleMatch = html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i);
+  const name = titleMatch ? titleMatch[1] : `file_${fileId}`;
+
+  const descMatch = html.match(/<meta\s+property="og:description"\s+content="([^"]+)"/i);
+  const size = descMatch ? parseFileSize(descMatch[1]) : 0;
+
   return { id: fileId, name, size, mimeType: 'application/octet-stream', totalSize: size };
 }
 
@@ -67,17 +82,29 @@ async function getFolderInfo(folderId) {
 
   const files = [];
   for (const id of fileIds) {
-    const snippet = html.match(new RegExp(`data-id="${id}"[^>]*>[\\s\\S]{0,800}?(?=data-id="|</div>\\s*</div>)`));
+    const snippet = html.match(new RegExp(`data-id="${id}"[^>]*>[\\s\\S]{0,1000}?(?=data-id="|</div>\\s*</div>)`));
     const tooltip = snippet?.[0]?.match(/data-tooltip="([^"]+)"/);
     const fileName = tooltip?.[1] || `file_${id}`;
-    files.push({ id, name: fileName, mimeType: 'application/octet-stream', size: 0 });
+
+    let fileSize = 0;
+    const dataSize = snippet?.[0]?.match(/data-size="(\d+)"/);
+    if (dataSize) {
+      fileSize = parseInt(dataSize[1], 10);
+    } else {
+      const sizeText = snippet?.[0]?.match(/([\d.]+)\s*(KB|MB|GB)/i);
+      if (sizeText) fileSize = parseFileSize(sizeText[0]);
+    }
+
+    files.push({ id, name: fileName, mimeType: 'application/octet-stream', size: fileSize });
   }
+
+  const totalSize = files.reduce((sum, f) => sum + f.size, 0);
 
   return {
     name, id: folderId,
     directFiles: files.length, subfolders: subfolderIds.length,
     files, subfolderIds,
-    totalSize: 0,
+    totalSize,
   };
 }
 
