@@ -1,6 +1,0 @@
-node_modules/
-.env
-credentials.json
-temp/
-*.log
-config.json
