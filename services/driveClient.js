@@ -53,18 +53,32 @@ async function getFolderInfo(folderId) {
   const nameMatch = html.match(/<title>([^<]+)<\/title>/);
   const name = nameMatch ? nameMatch[1].replace(/ - Google Drive$/, '').trim() : 'Unknown Folder';
 
-  const validIds = (html.match(/data-id="([A-Za-z0-9_-]{28,})"/g) || []).map((m) => m.match(/"([^"]+)"/)[1]);
-  const uniqueIds = [...new Set(validIds)];
+  const subfolderIds = [...new Set(
+    (html.match(/\/drive\/folders\/([a-zA-Z0-9_-]+)/g) || [])
+      .map((m) => m.split('/').pop())
+      .filter((id) => id !== folderId)
+  )];
+
+  const validIds = [...new Set(
+    (html.match(/data-id="([a-zA-Z0-9_-]{10,})"/g) || []).map((m) => m.match(/"([^"]+)"/)[1])
+  )];
+
+  const fileIds = validIds.filter((id) => !subfolderIds.includes(id));
 
   const files = [];
-  for (const id of uniqueIds) {
-    const nameRegex = new RegExp(`data-id="${id}"[^>]*>[\\s\\S]{0,500}?<div[^>]*data-tooltip="([^"]+)"`, 'i');
-    const nameMatch = html.match(nameRegex);
-    const fileName = nameMatch ? nameMatch[1] : `file_${id}`;
+  for (const id of fileIds) {
+    const snippet = html.match(new RegExp(`data-id="${id}"[^>]*>[\\s\\S]{0,800}?(?=data-id="|</div>\\s*</div>)`));
+    const tooltip = snippet?.[0]?.match(/data-tooltip="([^"]+)"/);
+    const fileName = tooltip?.[1] || `file_${id}`;
     files.push({ id, name: fileName, mimeType: 'application/octet-stream', size: 0 });
   }
 
-  return { name, id: folderId, directFiles: files.length, subfolders: 0, files, totalSize: 0 };
+  return {
+    name, id: folderId,
+    directFiles: files.length, subfolders: subfolderIds.length,
+    files, subfolderIds,
+    totalSize: 0,
+  };
 }
 
 async function downloadFileStream(fileId) {

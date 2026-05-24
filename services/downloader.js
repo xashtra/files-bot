@@ -45,20 +45,21 @@ async function downloadFile(drive, fileId, fileName, mimeType, size, maxSize) {
   }
 }
 
-async function listFolderContents(drive, folderId) {
-  const info = await getDriveFolderInfo(folderId);
-  return { files: info.files, folders: [] };
-}
-
 async function enumerateAllFiles(drive, folderId, depth = 0) {
   if (depth > 3) return [];
-  const { files } = await listFolderContents(drive, folderId);
-  return files;
+  const info = await getDriveFolderInfo(folderId);
+  let allFiles = [...info.files];
+  for (const subId of info.subfolderIds || []) {
+    const subFiles = await enumerateAllFiles(drive, subId, depth + 1);
+    allFiles = allFiles.concat(subFiles);
+  }
+  return allFiles;
 }
 
 async function downloadAll(drive, folderId, maxSize, onProgress, depth = 0) {
   if (depth > 3) return { downloaded: [], skipped: [], totalFiles: 0 };
-  const { files } = await listFolderContents(drive, folderId);
+  const info = await getDriveFolderInfo(folderId);
+  const files = info.files;
   let downloaded = [];
   let skipped = [];
   let totalFiles = files.length;

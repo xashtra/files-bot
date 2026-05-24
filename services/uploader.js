@@ -1,7 +1,7 @@
 const { AttachmentBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { resultEmbed, errorEmbed } = require('../utils/embeds');
+const { errorEmbed } = require('../utils/embeds');
 
 const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
@@ -12,7 +12,7 @@ function getMaxSize(interaction) {
   return 25 * 1024 * 1024;
 }
 
-const BATCH_SIZE = 9;
+const BATCH_SIZE = 10;
 
 async function sendBatch(interaction, files, isFirstBatch) {
   const attachments = files.map((f) => new AttachmentBuilder(f.path, { name: f.name }));
@@ -41,13 +41,6 @@ async function sendFiles(interaction, downloaded, skipped) {
     batches.push(downloaded.slice(i, i + BATCH_SIZE));
   }
 
-  try {
-    await interaction.editReply({
-      embeds: [resultEmbed(0, skipped.length)],
-      files: [],
-    });
-  } catch {}
-
   for (let i = 0; i < batches.length; i++) {
     try {
       await sendBatch(interaction, batches[i], i === 0);
@@ -68,10 +61,12 @@ async function sendFiles(interaction, downloaded, skipped) {
       await interaction.editReply({
         embeds: [errorEmbed(`No files could be uploaded.\n${reasonList}`)],
       });
+      setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
     } catch {
-      await interaction.channel?.send({
+      const errMsg = await interaction.channel?.send({
         embeds: [errorEmbed(`No files could be uploaded.\n${reasonList}`)],
       }).catch(() => {});
+      if (errMsg) setTimeout(() => errMsg.delete().catch(() => {}), 15000);
     }
   }
 }
@@ -82,15 +77,16 @@ async function sendZipFile(interaction, zipPath, downloadedCount, skippedCount) 
 
   if (stat.size > maxSize) {
     cleanupFiles([zipPath]);
-    return interaction.editReply({
+    await interaction.editReply({
       embeds: [errorEmbed(`ZIP file (${(stat.size / (1024 * 1024)).toFixed(2)} MB) exceeds the server's upload limit.`)],
     });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 15000);
+    return;
   }
 
   const attachment = new AttachmentBuilder(zipPath, { name: path.basename(zipPath) });
 
   await interaction.editReply({
-    embeds: [resultEmbed(downloadedCount, skippedCount)],
     files: [attachment],
   });
 
