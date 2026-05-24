@@ -12,39 +12,44 @@ function getMaxSize(interaction) {
   return 25 * 1024 * 1024;
 }
 
+async function sendSingleFile(interaction, file, isFirst) {
+  const attachment = new AttachmentBuilder(file.path, { name: file.name });
+  if (isFirst) {
+    await interaction.editReply({ files: [attachment] });
+  } else {
+    await interaction.followUp({ files: [attachment] });
+  }
+  cleanupFiles([file.path]);
+}
+
 async function sendFiles(interaction, downloaded, skipped) {
-  const batches = [];
-  for (let i = 0; i < downloaded.length; i += MAX_ATTACHMENTS_PER_MESSAGE) {
-    batches.push(downloaded.slice(i, i + MAX_ATTACHMENTS_PER_MESSAGE));
-  }
+  let sent = 0;
+  let failed = [...skipped];
 
-  let sentCount = 0;
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
-    const attachments = batch.map((f) => new AttachmentBuilder(f.path, { name: f.name }));
+  await interaction.editReply({
+    embeds: [resultEmbed(0, skipped.length)],
+    files: [],
+  }).catch(() => {});
 
-    if (i === 0 && sentCount === 0) {
-      await interaction.editReply({
-        embeds: [resultEmbed(downloaded.length, skipped.length)],
-        files: attachments,
-      });
-    } else {
-      await interaction.followUp({ files: attachments });
+  for (const file of downloaded) {
+    try {
+      await sendSingleFile(interaction, file, sent === 0);
+      sent++;
+    } catch (err) {
+      failed.push({ name: file.name, size: file.size, reason: 'upload failed: file too large or Discord rejected it' });
+      cleanupFiles([file.path]);
     }
-    sentCount += batch.length;
   }
 
-  if (downloaded.length === 0) {
-    let reasonList = skipped.map((s) => `• **${s.name}** — ${s.reason}`).join('\n');
+  if (sent === 0) {
+    let reasonList = failed.map((s) => `• **${s.name}** — ${s.reason}`).join('\n');
     if (reasonList.length > 3900) {
-      reasonList = reasonList.substring(0, 3900) + `\n*... and ${skipped.length} skipped*`;
+      reasonList = reasonList.substring(0, 3900) + `\n*... and ${failed.length} skipped*`;
     }
     await interaction.editReply({
-      embeds: [errorEmbed(`No files could be downloaded.\n${reasonList}`)],
-    });
+      embeds: [errorEmbed(`No files could be uploaded.\n${reasonList}`)],
+    }).catch(() => {});
   }
-
-  cleanupFiles(downloaded.map((f) => f.path));
 }
 
 async function sendZipFile(interaction, zipPath, downloadedCount, skippedCount) {
@@ -77,4 +82,4 @@ function cleanupFiles(paths) {
   }
 }
 
-module.exports = { sendFiles, sendZipFile, cleanupFiles, getMaxSize, MAX_ATTACHMENTS_PER_MESSAGE };
+module.exports = { sendFiles, sendSingleFile, sendZipFile, cleanupFiles, getMaxSize, MAX_ATTACHMENTS_PER_MESSAGE };

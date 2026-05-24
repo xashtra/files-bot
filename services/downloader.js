@@ -11,10 +11,6 @@ function sanitizeFileName(name) {
 }
 
 async function downloadFile(drive, fileId, fileName, mimeType, size, maxSize) {
-  if (size > maxSize) {
-    return { skipped: true, name: fileName, size, reason: `exceeds ${(maxSize / (1024 * 1024)).toFixed(0)} MB limit` };
-  }
-
   try {
     const { stream, filename } = await downloadFileStream(fileId);
     const safeName = sanitizeFileName(filename || fileName || fileId);
@@ -36,6 +32,11 @@ async function downloadFile(drive, fileId, fileName, mimeType, size, maxSize) {
     if (stats.size === 0) {
       fs.unlinkSync(destPath);
       return { skipped: true, name: filename || fileName, size, reason: 'downloaded file is empty' };
+    }
+
+    if (stats.size > maxSize) {
+      fs.unlinkSync(destPath);
+      return { skipped: true, name: filename || fileName, size: stats.size, reason: `exceeds ${(maxSize / (1024 * 1024)).toFixed(0)} MB limit` };
     }
 
     return { skipped: false, path: destPath, name: filename || fileName, size: stats.size };
