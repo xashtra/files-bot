@@ -114,11 +114,18 @@ function zipProgressEmbed(current, total) {
     .setDescription(`${bar} ${current} / ${total} files`);
 }
 
+function loadingEmbed(text = '⏳ Working...') {
+  return new EmbedBuilder()
+    .setColor(COLORS.progress)
+    .setDescription(text);
+}
+
 module.exports = {
   COLORS,
   fileInfoEmbed,
   folderInfoEmbed,
   progressEmbed,
+  loadingEmbed,
   resultEmbed,
   errorEmbed,
   autoWatchEmbed,

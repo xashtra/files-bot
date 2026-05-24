@@ -18,7 +18,7 @@ function parseDriveLink(url) {
     return { type: 'file', id: match[1] };
   }
 
-  match = url.match(/^([a-zA-Z0-9_-]{25,})$/);
+  match = url.match(/^([a-zA-Z0-9_-]{10,})$/);
   if (match) {
     return { type: 'file', id: match[1] };
   }
